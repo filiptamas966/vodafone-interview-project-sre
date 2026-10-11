@@ -50,7 +50,7 @@ If your local PostgreSQL uses a different user or password, set the environment 
 ### 2. Create a Python virtual environment and install dependencies
 
 ```bash
-cd /Users/corinatamas/Documents/Vodafone-interview-project/api
+cd api
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
@@ -62,7 +62,7 @@ python -m pip install -r requirements.txt
 Use Gunicorn from the `api/` directory:
 
 ```bash
-cd /Users/corinatamas/Documents/Vodafone-interview-project/api
+cd api
 source .venv/bin/activate
 DB_HOST=127.0.0.1 DB_PORT=5432 DB_NAME=timestamps DB_USER=postgres DB_PASSWORD=postgres gunicorn --bind 127.0.0.1:5005 app:app
 ```
@@ -117,7 +117,7 @@ The following checks were run against a live PostgreSQL installation on the actu
 
 ```bash
 brew services start postgresql@16
-/opt/homebrew/opt/postgresql@16/bin/psql -h 127.0.0.1 -U corinatamas -d postgres -c "SELECT current_user, current_database();"
+psql -h 127.0.0.1 -U postgres -d postgres -c "SELECT current_user, current_database();"
 ```
 
 Result:
@@ -126,7 +126,7 @@ Result:
 127.0.0.1:5432 - accepting connections
  current_user | current_database
 --------------+------------------
- corinatamas  | postgres
+ postgres     | postgres
 ```
 
 ```bash
@@ -143,7 +143,7 @@ HTTP/1.1 201 CREATED
 ```
 
 ```bash
-/opt/homebrew/opt/postgresql@16/bin/psql -h 127.0.0.1 -U corinatamas -d timestamps -c "SELECT event_id, customer_id, created_at FROM customer_events WHERE customer_id='cust-mac-verify' ORDER BY event_id DESC LIMIT 5;"
+psql -h 127.0.0.1 -U postgres -d timestamps -c "SELECT event_id, customer_id, created_at FROM customer_events WHERE customer_id='cust-mac-verify' ORDER BY event_id DESC LIMIT 5;"
 ```
 
 Result:
@@ -225,7 +225,6 @@ The following are proposed production features, not implemented here:
 Run the tests:
 
 ```bash
-cd /Users/corinatamas/Documents/Vodafone-interview-project
 python3 -m pytest -q api/tests
 ```
 
