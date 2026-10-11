@@ -8,7 +8,7 @@ At a high level: a client sends a customer ID, the app checks the input, Postgre
 
 ## 2. Implemented local design
 
-This repository implements a local PostgreSQL design without Docker:
+This repository implements a local PostgreSQL design:
 
 - one Flask application
 - one PostgreSQL database running locally
@@ -32,10 +32,9 @@ The table keeps `event_id` as the primary key and does not enforce uniqueness on
 
 ## 4. Why this design works
 
-- The write path is simple and easy to explain.
+- The write path is simple.
 - The application is stateless, so multiple instances can point at the same database.
 - PostgreSQL provides a durable single source of truth.
-- The service is small enough to explain fully in an interview without introducing unnecessary layers.
 
 ## 5. Proposed production architecture
 
@@ -75,7 +74,7 @@ This is a proposed architecture, not the local implementation.
 
 This service can scale by increasing or decreasing the number of app tasks based on demand.
 
-A starting policy for discussion could be:
+A starting policy could be:
 
 - minimum 2 tasks
 - maximum 10 tasks
@@ -93,8 +92,6 @@ Important points:
 ## 8. Multi-DC and disaster recovery
 
 A second region should hold an asynchronous PostgreSQL replica for disaster recovery. This is a proposed design only.
-
-For a real answer in an interview, I would say:
 
 - synchronous replication protects a region from local failures
 - asynchronous cross-region replication helps protect against regional failure
@@ -122,7 +119,7 @@ What is not implemented here:
 - monitoring, alerting, and backup restore drills
 - TLS and secrets management
 
-A practical follow-up plan would include:
+A follow-up plan would include:
 
 - Terraform or similar IaC for AWS resources
 - ECS Fargate or a managed app platform
@@ -136,8 +133,6 @@ I chose Flask because it keeps the implementation small and easy to explain. I c
 
 ## 11. Production follow-ups
 
-These are important but not in scope for this interview example:
-
 - authentication and TLS
 - least-privilege database access
 - secrets management
@@ -146,11 +141,3 @@ These are important but not in scope for this interview example:
 - idempotency keys for retry protection
 - backup and restore drills
 - queueing is optional and changes the meaning of acceptance versus confirmed persistence
-
-## 12. Interview summary
-
-> A customer sends a POST request with a customer ID. The app validates the request, inserts one row into PostgreSQL, and the database generates the timestamp. After the transaction commits, the API returns the saved record. The app itself is stateless, so multiple instances can share the same database.
-
-A short version for an interview:
-
-> This is a simple Flask API with a PostgreSQL database. A customer request comes in, the app validates the customer ID, the database stores the event and timestamp, and the API returns the saved record. It is a straightforward write-through design with a single source of truth.

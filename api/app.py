@@ -151,6 +151,39 @@ def save_timestamp():
         }
     ), 201
 
+@app.get("/timestamps")
+def get_timestamps():
+    """Retrieve all timestamps for all customers."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        with conn.cursor() as cur:
+            # Query all events across all customers, ordered by creation time.
+            cur.execute(
+                """
+                SELECT event_id, customer_id, created_at
+                FROM customer_events
+                ORDER BY created_at DESC
+                """
+            )
+            rows = cur.fetchall()
+    except Exception:
+        app.logger.exception("database read failed")
+        return jsonify({"error": "database unavailable"}), 503
+    finally:
+        if conn is not None:
+            conn.close()
+
+    # Parameterised SQL keeps customer input separate from the query.
+    timestamps = [
+        {
+            "event_id": event_id,
+            "customer_id": customer_id,
+            "created_at": created_at.isoformat(),
+        }
+        for event_id, customer_id, created_at in rows
+    ]
+    return jsonify({"timestamps": timestamps}), 200
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=PORT, debug=False)

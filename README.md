@@ -2,8 +2,6 @@
 
 This project is a small Flask service that receives a customer ID, validates it, writes a record to PostgreSQL, and returns the saved event with the database-generated timestamp.
 
-In one sentence: a customer sends a POST request, the app validates the input, PostgreSQL stores the event, and the API returns the row after the transaction commits.
-
 ## What is implemented
 
 - Accepts `POST /timestamp` with a JSON object containing `customer_id`
@@ -11,13 +9,12 @@ In one sentence: a customer sends a POST request, the app validates the input, P
 - Inserts a row into PostgreSQL
 - Lets PostgreSQL generate the timestamp with `DEFAULT NOW()`
 - Returns the saved record after a successful commit
+- Includes `GET /timestamps` to retrieve all events for all customers
 - Includes `/health` for database readiness and `/health/live` for liveness
 - Uses parameterised SQL
 - Keeps `customer_id` non-unique so multiple events per customer are allowed
 
-The service is intentionally simple: validate the request, write one row, and return the stored record.
-
-## Local no-Docker setup
+## Local setup
 
 ### 1. Prerequisite: PostgreSQL must be available locally
 
@@ -39,13 +36,13 @@ brew install postgresql@16
 brew services start postgresql@16
 ```
 
-Then create or check the database and user:
+Then create the database and user:
 
 ```bash
-createdb -h localhost -U postgres timestamps
+creatdb -h localhost -U $(whoami) timestamps
+createuser -h localhost -U $(whoami) filiptamas
+psql -h localhost -U $(whoami) -d timestamps -c "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO filiptamas;"
 ```
-
-If your local PostgreSQL uses a different user or password, set the environment variables before starting the app.
 
 ### 2. Create a Python virtual environment and install dependencies
 
@@ -64,15 +61,19 @@ Use Gunicorn from the `api/` directory:
 ```bash
 cd api
 source .venv/bin/activate
-DB_HOST=127.0.0.1 DB_PORT=5432 DB_NAME=timestamps DB_USER=postgres DB_PASSWORD=postgres gunicorn --bind 127.0.0.1:5005 app:app
+DB_HOST=localhost DB_PORT=5432 DB_NAME=timestamps DB_USER=filiptamas DB_PASSWORD='' python3 app.py
 ```
 
-This is the local execution path used for the project.
-
-### 4. Send a valid request
+Or with Gunicorn:
 
 ```bash
-curl -i -X POST http://127.0.0.1:5005/timestamp \
+DB_HOST=localhost DB_PORT=5432 DB_NAME=timestamps DB_USER=filiptamas DB_PASSWORD='' gunicorn --bind 127.0.0.1:5005 app:app
+```
+
+### 4. Send a POST request to create an event
+
+```bash
+curl -i -X POST http://localhost:5005/timestamp \
   -H "Content-Type: application/json" \
   -d '{"customer_id":"cust-123"}'
 ```
@@ -84,32 +85,57 @@ Example response:
   "status": "ok",
   "event_id": 1,
   "customer_id": "cust-123",
-  "created_at": "2026-10-09T12:34:56.789012+00:00"
+  "created_at": "2026-10-11T14:30:22.456789+00:00"
 }
 ```
 
-### 5. Verify the saved event in PostgreSQL
+### 5. Retrieve all events for all customers
 
 ```bash
-psql "postgresql://postgres:postgres@127.0.0.1:5432/timestamps" -c "SELECT event_id, customer_id, created_at FROM customer_events ORDER BY event_id DESC LIMIT 5;"
+curl -s http://localhost:5005/timestamps | jq '.'
 ```
 
-### 6. Check health endpoints
+Example response:
 
-```bash
-curl -i http://127.0.0.1:5005/health
-curl -i http://127.0.0.1:5005/health/live
+```json
+{
+  "timestamps": [
+    {
+      "event_id": 1,
+      "customer_id": "cust-123",
+      "created_at": "2026-10-11T14:30:22.456789+00:00"
+    },
+    {
+      "event_id": 2,
+      "customer_id": "cust-456",
+      "created_at": "2026-10-11T14:25:10.123456+00:00"
+    }
+  ]
+}
 ```
 
-### 7. Invalid input example
+### 6. Verify the saved events in PostgreSQL
 
 ```bash
-curl -i -X POST http://127.0.0.1:5005/timestamp \
+psql -h localhost -U filiptamas -d timestamps -c "SELECT event_id, customer_id, created_at FROM customer_events ORDER BY event_id DESC LIMIT 5;"
+```
+
+### 7. Check health endpoints
+
+```bash
+curl -i http://localhost:5005/health
+curl -i http://localhost:5005/health/live
+```
+
+### 8. Invalid input example
+
+```bash
+curl -i -X POST http://localhost:5005/timestamp \
   -H "Content-Type: application/json" \
   -d '{"customer_id":"   "}'
 ```
 
-This should return HTTP 400.
+Expected: HTTP 400 (customer_id is required)
 
 ## Verified locally on this Mac
 
@@ -117,33 +143,60 @@ The following checks were run against a live PostgreSQL installation on the actu
 
 ```bash
 brew services start postgresql@16
-psql -h 127.0.0.1 -U postgres -d postgres -c "SELECT current_user, current_database();"
+psql -h localhost -U filiptamas -d postgres -c "SELECT current_user, current_database();"
 ```
 
 Result:
 
 ```text
-127.0.0.1:5432 - accepting connections
- current_user | current_database
---------------+------------------
- postgres     | postgres
+ current_user  | current_database
+---------------+------------------
+ filiptamas    | postgres
 ```
 
+Create events:
+
 ```bash
-curl -sS -i -X POST http://127.0.0.1:5005/timestamp \
+curl -s -X POST http://localhost:5005/timestamp \
   -H 'Content-Type: application/json' \
-  -d '{"customer_id":"cust-mac-verify"}'
+  -d '{"customer_id":"customer-001"}' | jq '.'
 ```
 
 Result:
 
-```text
-HTTP/1.1 201 CREATED
-{"created_at":"2026-10-09T19:55:52.905788+01:00","customer_id":"cust-mac-verify","event_id":1,"status":"ok"}
+```json
+{
+  "status": "ok",
+  "event_id": 1,
+  "customer_id": "customer-001",
+  "created_at": "2026-10-11T22:16:46.988901+01:00"
+}
 ```
 
+Retrieve all events:
+
 ```bash
-psql -h 127.0.0.1 -U postgres -d timestamps -c "SELECT event_id, customer_id, created_at FROM customer_events WHERE customer_id='cust-mac-verify' ORDER BY event_id DESC LIMIT 5;"
+curl -s http://localhost:5005/timestamps | jq '.'
+```
+
+Result:
+
+```json
+{
+  "timestamps": [
+    {
+      "event_id": 1,
+      "customer_id": "customer-001",
+      "created_at": "2026-10-11T22:16:46.988901+01:00"
+    }
+  ]
+}
+```
+
+Verify in PostgreSQL:
+
+```bash
+psql -h localhost -U filiptamas -d timestamps -c "SELECT event_id, customer_id, created_at FROM customer_events ORDER BY event_id DESC LIMIT 5;"
 ```
 
 Result:
@@ -169,46 +222,20 @@ HTTP/1.1 400 BAD REQUEST
 {"error":"customer_id is required"}
 ```
 
-This confirms the local application flow works on this Mac: PostgreSQL is running, the app writes to it, the row remains after a restart, and invalid input is rejected.
-
-## Local demo sequence
-
-1. Successful POST
-   - Send a valid request
-   - Confirm HTTP 201
-   - Confirm the event exists in PostgreSQL
-2. Invalid input
-   - Send an empty or whitespace-only customer_id
-   - Confirm HTTP 400
-3. Application restart
-   - Restart Gunicorn
-   - Confirm the previously inserted event still exists
-4. Database outage check
-   - Stop PostgreSQL or temporarily disconnect it
-   - Confirm `/health/live` still returns 200
-   - Confirm `/health` returns 503
-
-Important note: application restart persistence is different from Docker volume persistence. A restart of the app process does not prove Docker volume persistence.
 
 ## Important notes
 
-- PostgreSQL must be installed and running separately. Installing `psycopg2` does not install the PostgreSQL server.
+- PostgreSQL must be installed and running separately.
 - `customer_id` is intentionally non-unique; multiple events from the same customer are allowed.
 - The app does not implement idempotency yet. Retrying the same request can create another row. A client-supplied idempotency key would be the next improvement.
-- The app is intentionally small and easy to explain.
 - This project keeps demo credentials in environment variables only. In production, use secrets management and a restricted database user.
 
-## Docker as an optional alternative
-
-This repository also contains a Compose file for local container-based deployment, but Docker is not required for the interview and is not part of the main local workflow here.
-
-It is optional and unverified in this environment because Docker is not installed.
 
 ## Local implementation vs production design
 
 This repository implements:
-- one Flask + Gunicorn web app
-- one PostgreSQL database
+- a Flask + Gunicorn web app
+- a PostgreSQL database
 - local environment-variable configuration
 - validation, committed inserts, and health endpoints
 
@@ -228,13 +255,8 @@ Run the tests:
 python3 -m pytest -q api/tests
 ```
 
-## Interview explanation
-
-> A customer sends a POST request containing their customer ID. The application validates the request and inserts an event into PostgreSQL. PostgreSQL generates the timestamp at transaction time, and the application returns the saved record after the transaction commits. The application stores no customer data in memory, so multiple instances can use the same database.
-
 ## Production requirements summary
 
 - Redundancy: multiple app instances across availability zones behind a load balancer; PostgreSQL primary with a standby in another zone.
 - Elasticity: increase or decrease app instances with demand. Database write capacity and connection limits still require capacity planning.
 - Multi-DC: a second region with replicated data and a documented failover process. State the possible data loss and recovery time rather than promising seamless failover.
-- Automation: this local workflow is implemented without Docker. Cloud deployment, autoscaling, and regional recovery are proposed follow-up work rather than implemented here.
