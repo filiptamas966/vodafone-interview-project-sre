@@ -5,6 +5,7 @@ from flask import Flask, jsonify, request
 
 app = Flask(__name__)
 
+# Environment variables allow configuration without code changes.
 PORT = int(os.getenv("PORT", "5005"))
 DB_HOST = os.getenv("DB_HOST", "localhost")
 DB_PORT = int(os.getenv("DB_PORT", "5432"))
@@ -14,6 +15,8 @@ DB_PASSWORD = os.getenv("DB_PASSWORD", "postgres")
 
 
 def get_db_connection():
+    # connect_timeout limits time to establish connection.
+    # statement_timeout limits time a single query can run.
     return psycopg2.connect(
         host=DB_HOST,
         port=DB_PORT,
@@ -26,6 +29,8 @@ def get_db_connection():
 
 
 def init_db():
+    """Create table if not exists. Startup table creation simplifies the demo;
+    production would use separate migrations."""
     conn = None
     try:
         conn = get_db_connection()
@@ -39,6 +44,9 @@ def init_db():
                 )
                 """
             )
+            # event_id uniquely identifies each event; customer_id is not unique
+            # so multiple events per customer are allowed.
+            # DEFAULT NOW() records the transaction start time when this row is inserted.
         conn.commit()
     except Exception as exc:
         if conn is not None:
@@ -58,11 +66,13 @@ except Exception as exc:
 
 @app.get("/health/live")
 def health_live():
+    """Liveness check: application is running. Does not check database."""
     return jsonify({"status": "ok"})
 
 
 @app.get("/health")
 def health_check():
+    """Readiness check: application can connect to database."""
     conn = None
     try:
         conn = get_db_connection()
@@ -79,6 +89,7 @@ def health_check():
 
 @app.post("/timestamp")
 def save_timestamp():
+    """Validate customer_id, insert event, and return saved record after commit."""
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict):
         return jsonify({"error": "request body must be a JSON object"}), 400
@@ -87,6 +98,7 @@ def save_timestamp():
     if not isinstance(customer_id, str):
         return jsonify({"error": "customer_id must be a string"}), 400
 
+    # Strip whitespace and reject empty strings.
     customer_id = customer_id.strip()
     if customer_id == "":
         return jsonify({"error": "customer_id is required"}), 400
@@ -99,6 +111,8 @@ def save_timestamp():
     try:
         conn = get_db_connection()
         with conn.cursor() as cur:
+            # Parameterised SQL keeps customer input separate from the query.
+            # RETURNING retrieves the generated event_id and timestamp.
             cur.execute(
                 """
                 INSERT INTO customer_events (customer_id)
@@ -108,16 +122,19 @@ def save_timestamp():
                 (customer_id,),
             )
             row = cur.fetchone()
+        # Commit must succeed before returning HTTP 201.
         conn.commit()
     except Exception:
         app.logger.exception("database write failed")
         if conn is not None:
+            # Rollback is attempted on failure and can itself fail after a connection drops.
             try:
                 conn.rollback()
             except psycopg2.Error:
                 app.logger.exception("database rollback failed")
         return jsonify({"error": "database unavailable"}), 503
     finally:
+        # finally ensures the connection is closed on both success and failure.
         if conn is not None:
             conn.close()
 

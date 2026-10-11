@@ -6,12 +6,14 @@ import psycopg2
 
 
 def load_app_module(monkeypatch, fake_factory):
+    """Load the app with a fake database connection factory to avoid real database calls."""
     monkeypatch.setattr(psycopg2, "connect", fake_factory)
     sys.modules.pop("api.app", None)
     return importlib.import_module("api.app")
 
 
 class FakeCursor:
+    """Fake cursor for testing: records query and params without executing real SQL."""
     def __init__(self):
         self.query = None
         self.params = None
@@ -35,6 +37,7 @@ class FakeCursor:
 
 
 class FakeConnection:
+    """Fake connection for testing: simulates database behaviour without persisting data."""
     def __init__(self, rows=None):
         self.cursor_obj = FakeCursor()
         self.rows = rows or []
@@ -59,6 +62,8 @@ class FakeConnection:
 
 
 def test_valid_request_returns_201_and_saved_record(monkeypatch):
+    # Separate startup and request connections prevent misleading assertions:
+    # if we reused one connection, commit/close state from init_db() would carry over.
     startup_connection = FakeConnection()
     connection = FakeConnection(
         rows=[(101, "customer-42", datetime.datetime.now(datetime.timezone.utc))]
@@ -167,6 +172,8 @@ def test_multiple_events_for_same_customer_allowed(monkeypatch):
 
 
 def test_rollback_failure_still_returns_503_and_closes_connection(monkeypatch):
+    # Verifies that if both commit and rollback fail, the application still returns 503
+    # and closes the connection to avoid leaking resources.
     startup_connection = FakeConnection()
     connection = FakeConnection(
         rows=[(301, "customer-rollback", datetime.datetime.now(datetime.timezone.utc))]
